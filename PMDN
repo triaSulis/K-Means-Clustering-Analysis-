@@ -1,0 +1,122 @@
+#PMDN
+library(cluster) #Clustering
+library(factoextra) #Clustering & Viz
+library(tidyverse) #Data Manipulation
+library(dplyr)
+library(fpc) #Clustering
+library(ggrairaphxtE) #Radar plot
+library(clValid) #Choose c
+#Center of Cluster -->mean -->K-MEANS
+
+#Data Preparation
+library("readxl")
+pmdn <- read_excel("C:/Users/Tria/Downloads/Book2 (1).xlsx", sheet = "PMDNt")
+head(pmdn)
+str(pmdn)
+dataclus=pmdn[,2:24]
+rownames(dataclus)=dataclus$prov
+head(dataclus)
+boxplot(dataclus) #statistika deskriptif
+summary(dataclus)
+
+#Nyari data outlier
+outlier=read.delim("clipboard")
+
+#Bartlett Test (Homogeneity)
+bartlett.test(dataclus) #variansinya sama atau ngga, karena multivariat dan skala beda2
+
+#Correlation/Multicolinearity, PCA bisa --> kalau ada multiko
+library(corrplot)
+r=cor(dataclus)
+r
+corrplot(r)
+library(PerformanceAnalytics)
+chart.Correlation(dataclus) #***korelasi signifikan, banyak itu ada multiko, bisa dilanjut
+library(psych)
+cortest.bartlett(r,n=nrow(dataclus))
+
+#KMO Test
+KMO(r) #overall>0.5, stop if <0.5; MSA>0.5, drop if <0.5 (1 by 1 pake backward, sampai memenhi semua, kecuali STBM) ==>bisa diPCA/FA
+#Setelah mendrop variabel STBM (overall naik 0.79) maka MSA each item sudah diatas 0.5
+
+#Clustering Tendency
+library("clusterSim")
+library("factoextra")
+fviz_nbclust(dataclus, FUNcluster=kmeans, k.max = 7) 
+fviz_nbclust(dataclus, FUNcluster=kmeans, method="gap_stat", k.max = 7)+ theme_classic()
+
+#Choose Optimum k for K-Means
+fviz_nbclust(dataclus, kmeans, method="wss") #Elbow Method untuk mengetahui jumlah kluster, k=4
+fviz_nbclust(dataclus, kmeans, method="silhouette") #Silhouette Method, k=2
+intern=clValid(dataclus, nClust = 2:23,clMethods = c("hierarchical","kmeans","pam"), validation = "internal")
+summary(intern) #paling bagus metode hierarki 2 kluster
+
+#Run K-Means
+km_fit = kmeans(dataclus,centers=6) #memodelkan dengan k-means, center gunanya membagi 2 kluster
+print(km_fit)
+df.clus=data.frame(dataclus,km_fit$cluster) #Adding Cluster to DF, menampilkan data asli dan kelompok clusternya
+View(df.clus)
+win.graph()
+library("factoextra")
+fviz_cluster(km_fit,dataclus) #Cluster Plot, cara liat dia overlapping engga, ternyata ga overlapping terpisah 1 dan 2
+km_fit$centers #Represented object from each clusters
+
+#Exploring Each Clusters (Profiling, setiap cluster karakternya gimana)
+table(km_fit$cluster) #Number of members in each clusters (jumlah anggota tiap kluster)
+
+#Model Criterions
+score_KM=function(k){
+  km=kmeans(dataclus, centers=k)
+  ss=silhouette(km$cluster, dist(dataclus))
+  mean(ss[,3])
+}
+k=6
+avg_sil=sapply(k,score_KM) #Silhouette Score
+avg_sil
+mod_cri=function(Data, nc, c) #penghitungan kriteria kebaikan
+{
+  n = dim(Data)[1]
+  p = dim(Data)[2]
+  X = Data[,1:(p-1)]
+  Group = Data[,p]
+  p = dim(X)[2]
+  Mean.X = matrix(ncol = p, nrow = (nc+1))
+  for (i in 1:nc)
+  {
+    for (j in 1:p)
+    {
+      Mean.X[i,j] = mean(X[which(Group==i),j])
+      Mean.X[(nc+1),j] = mean(X[,j])
+    }
+  }
+  SST = matrix(ncol=p, nrow=n)
+  for (i in 1:n)
+  {
+    for (j in 1:p)
+    {
+      SST[i,j] = (X[i,j] - Mean.X[(nc+1),j])^2
+    }
+  }
+  SST = sum(sum(SST))
+  SSE = matrix(ncol=p, nrow=n)
+  for (i in 1:n)
+  {
+    for (j in 1:p)
+    {
+      for (k in 1:nc)
+      {
+        if (Group[i]==k)
+        {
+          SSE[i,j] = (X[i,j] - Mean.X[k,j])^2
+        }
+      }
+    }
+  }
+  SSE = sum(sum(SSE))
+  Rsq = (SST-SSE)/SST
+  icdrate = 1-Rsq
+  Pseudof = (Rsq/(c-1))/((icdrate)/(nc-c))
+  ssb=SST-SSE
+  list(SSW=SSE, SST=SST, SSB=ssb, Rsq=Rsq, icdrate=icdrate, pseudof=Pseudof)
+}
+mod_cri(df.clus,length(df.clus),6)
